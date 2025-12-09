@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>U.S. Border Crossing Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #0a0c10;
+            --bg-surface: #12151c;
+            --bg-elevated: #1a1e28;
+            --bg-card: #1f232f;
+            --border-subtle: #2a3040;
+            --text-primary: #e8eaf0;
+            --text-secondary: #8b93a8;
+            --text-muted: #5a6275;
+            --accent-canada: #ff4d6d;
+            --accent-canada-glow: rgba(255, 77, 109, 0.3);
+            --accent-mexico: #00d4aa;
+            --accent-mexico-glow: rgba(0, 212, 170, 0.3);
+            --accent-gold: #ffd166;
+            --accent-blue: #4ea8de;
+            --gradient-mesh: radial-gradient(ellipse at 20% 0%, rgba(255, 77, 109, 0.08) 0%, transparent 50%),
+                            radial-gradient(ellipse at 80% 100%, rgba(0, 212, 170, 0.08) 0%, transparent 50%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .bg-mesh {
+            position: fixed;
+            inset: 0;
+            background: var(--gradient-mesh);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem 0;
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        .header .data-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 50px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .header .data-badge .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-mexico);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        /* Loading Screen */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-deep);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s, visibility 0.5s;
+        }
+
+        .loading-overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 3px solid var(--bg-elevated);
+            border-top-color: var(--accent-mexico);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 1.5rem;
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .loading-progress {
+            margin-top: 1rem;
+            width: 200px;
+            height: 4px;
+            background: var(--bg-elevated);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-canada), var(--accent-mexico));
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-canada), var(--accent-mexico));
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-value.canada { color: var(--accent-canada); }
+        .stat-value.mexico { color: var(--accent-mexico); }
+
+        .stat-subtext {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            grid-template-rows: auto;
+            gap: 1.5rem;
+            margin-bottom: 0;
+        }
+
+        /* Map Container */
+        .map-container {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .map-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .map-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .map-legend {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.8rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .legend-dot.canada { background: var(--accent-canada); }
+        .legend-dot.mexico { background: var(--accent-mexico); }
+
+        #map {
+            height: 450px;
+            width: 100%;
+            background: #1a1a2e;
+            z-index: 1;
+        }
+        
+        .leaflet-tile-pane {
+            opacity: 1 !important;
+        }
+
+
+        /* Custom Leaflet Styles */
+        .leaflet-container {
+            background: var(--bg-deep);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .leaflet-popup-content-wrapper {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .leaflet-popup-content {
+            color: var(--text-primary);
+            margin: 12px 16px;
+        }
+
+        .leaflet-popup-tip {
+            background: var(--bg-card);
+        }
+
+        .popup-title {
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .popup-border {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
+
+        .popup-border.canada {
+            background: var(--accent-canada-glow);
+            color: var(--accent-canada);
+        }
+
+        .popup-border.mexico {
+            background: var(--accent-mexico-glow);
+            color: var(--accent-mexico);
+        }
+
+        .popup-stat {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .popup-stat:last-child {
+            border-bottom: none;
+        }
+
+        /* Side Panel */
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .panel-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .panel-content {
+            padding: 1rem 1.25rem;
+        }
+
+        /* Top Lists */
+        .top-list {
+            list-style: none;
+        }
+
+        .top-list-item {
+            display: flex;
+            align-items: center;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+            gap: 0.75rem;
+        }
+
+        .top-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .rank {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            width: 24px;
+        }
+
+        .item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .item-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .item-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--accent-gold);
+        }
+
+        /* Measures Chart */
+        .measure-bar {
+            margin-bottom: 0.85rem;
+        }
+
+        .measure-bar:last-child {
+            margin-bottom: 0;
+        }
+
+        .measure-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.4rem;
+            font-size: 0.8rem;
+        }
+
+        .measure-name {
+            color: var(--text-secondary);
+        }
+
+        .measure-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-primary);
+        }
+
+        .measure-track {
+            height: 8px;
+            background: var(--bg-deep);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .measure-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease-out;
+        }
+
+        .measure-fill.vehicles { background: linear-gradient(90deg, #4ea8de, #48bfe3); }
+        .measure-fill.passengers { background: linear-gradient(90deg, #7b68ee, #9d4edd); }
+        .measure-fill.trucks { background: linear-gradient(90deg, #ff6b6b, #ee5a5a); }
+        .measure-fill.pedestrians { background: linear-gradient(90deg, #ffd166, #f4a261); }
+        .measure-fill.buses { background: linear-gradient(90deg, #06d6a0, #00d4aa); }
+        .measure-fill.trains { background: linear-gradient(90deg, #118ab2, #073b4c); }
+
+
+        /* Border Comparison */
+        .border-comparison {
+            display: flex;
+            gap: 1.5rem;
+            padding: 0.75rem 0;
+        }
+
+        .border-stat {
+            flex: 1;
+            text-align: center;
+        }
+
+        .border-stat h4 {
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 0.4rem;
+        }
+
+        .border-stat h4.canada { color: var(--accent-canada); }
+        .border-stat h4.mexico { color: var(--accent-mexico); }
+
+        .border-stat .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .border-stat .percent {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+
+        .comparison-bar {
+            height: 12px;
+            background: var(--bg-deep);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            margin-top: 0.75rem;
+        }
+
+        .comparison-segment {
+            height: 100%;
+            transition: width 0.5s ease-out;
+        }
+
+        .comparison-segment.canada { background: var(--accent-canada); }
+        .comparison-segment.mexico { background: var(--accent-mexico); }
+
+        /* States List */
+        .states-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+        }
+
+        .state-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0.65rem;
+            background: var(--bg-elevated);
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+
+        .state-name {
+            color: var(--text-secondary);
+        }
+
+        .state-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-primary);
+        }
+
+        /* Timeline Chart */
+        .timeline-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .timeline-controls label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .timeline-controls select {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.4rem 0.6rem;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .timeline-controls select:focus {
+            outline: none;
+            border-color: var(--accent-mexico);
+        }
+
+        .timeline-chart-wrapper {
+            margin-top: 1rem;
+            overflow-x: auto;
+        }
+
+        .timeline-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 180px;
+            min-width: max-content;
+            padding: 0.5rem 0;
+        }
+
+        .timeline-bar-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100%;
+            min-width: 20px;
+            flex-shrink: 0;
+        }
+
+        .timeline-bar-group.year-start {
+            border-left: 1px solid var(--border-subtle);
+            padding-left: 4px;
+            margin-left: 4px;
+        }
+
+        .timeline-bars {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 1px;
+        }
+
+        .timeline-bar {
+            width: 100%;
+            min-height: 1px;
+            border-radius: 2px 2px 0 0;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .timeline-bar.canada {
+            background: var(--accent-canada);
+        }
+
+        .timeline-bar.mexico {
+            background: var(--accent-mexico);
+        }
+
+        .timeline-bar-group:hover .timeline-bar {
+            filter: brightness(1.3);
+            transform: scaleX(1.1);
+        }
+
+        .timeline-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .timeline-label.year-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+        }
+
+        .timeline-summary {
+            display: flex;
+            gap: 2rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-subtle);
+            font-size: 0.8rem;
+        }
+
+        .timeline-summary-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .timeline-summary-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .timeline-summary-item .dot.canada { background: var(--accent-canada); }
+        .timeline-summary-item .dot.mexico { background: var(--accent-mexico); }
+
+        .timeline-summary-item .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+
+        .selected-period {
+            background: var(--bg-elevated);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .selected-period.visible {
+            display: block;
+        }
+
+        .selected-period h4 {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .selected-period .stats {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.8rem;
+        }
+
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .side-stats {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* File Input */
+        .file-input-wrapper {
+            padding: 2rem;
+            text-align: center;
+            border: 2px dashed var(--border-subtle);
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            transition: border-color 0.3s, background 0.3s;
+            cursor: pointer;
+        }
+
+        .file-input-wrapper:hover {
+            border-color: var(--accent-mexico);
+            background: rgba(0, 212, 170, 0.05);
+        }
+
+        .file-input-wrapper.dragover {
+            border-color: var(--accent-mexico);
+            background: rgba(0, 212, 170, 0.1);
+        }
+
+        .file-input-wrapper input {
+            display: none;
+        }
+
+        .file-input-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .file-input-text {
+            color: var(--text-secondary);
+        }
+
+        .file-input-text strong {
+            color: var(--accent-mexico);
+        }
+
+        /* Filters */
+        .filters-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-select {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            min-width: 150px;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent-mexico);
+        }
+
+        .filter-select option {
+            background: var(--bg-card);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+                min-height: auto;
+            }
+            
+            .side-panel {
+                flex-direction: row;
+                flex-wrap: wrap;
+                max-height: none;
+                overflow-y: visible;
+            }
+            
+            .panel-card {
+                flex: 1 1 300px;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .side-panel {
+                flex-direction: column;
+            }
+            
+            .bottom-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-mesh"></div>
+    
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">Preparing dashboard...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loadingBar"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header class="header">
+            <h1>Border Crossing Data</h1>
+            <p class="subtitle">U.S. Customs and Border Protection • Inbound Entry Statistics</p>
+            <div class="data-badge">
+                <span class="dot"></span>
+                <span id="recordCount">No data loaded</span>
+            </div>
+        </header>
+
+        <div class="file-input-wrapper" id="fileDropZone">
+            <div class="file-input-icon">📁</div>
+            <p class="file-input-text">
+                <strong>Auto-load failed?</strong> Drop your JSON file here or click to browse<br>
+                <small>Tip: Run a local server to auto-load data.json (e.g., <code>python -m http.server 8000</code>)</small>
+            </p>
+            <input type="file" id="fileInput" accept=".json">
+        </div>
+
+        <div id="dashboardContent" style="display: none;">
+            <div class="filters-row">
+                <select class="filter-select" id="yearFilter">
+                    <option value="">All Years</option>
+                </select>
+                <select class="filter-select" id="borderFilter">
+                    <option value="">All Borders</option>
+                    <option value="US-Canada Border">US-Canada Border</option>
+                    <option value="US-Mexico Border">US-Mexico Border</option>
+                </select>
+                <select class="filter-select" id="measureFilter">
+                    <option value="">All Measures</option>
+                </select>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Crossings</div>
+                    <div class="stat-value" id="totalCrossings">0</div>
+                    <div class="stat-subtext">All time entries</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Canada Border</div>
+                    <div class="stat-value canada" id="canadaCrossings">0</div>
+                    <div class="stat-subtext" id="canadaPercent">0% of total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Mexico Border</div>
+                    <div class="stat-value mexico" id="mexicoCrossings">0</div>
+                    <div class="stat-subtext" id="mexicoPercent">0% of total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Active Ports</div>
+                    <div class="stat-value" id="activePorts">0</div>
+                    <div class="stat-subtext">Border crossing points</div>
+                </div>
+            </div>
+
+            <div class="main-grid">
+                <div class="map-container">
+                    <div class="map-header">
+                        <h3>Port of Entry Locations</h3>
+                        <div class="map-legend">
+                            <div class="legend-item">
+                                <div class="legend-dot canada"></div>
+                                <span>Canada Border</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot mexico"></div>
+                                <span>Mexico Border</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="map"></div>
+                </div>
+
+                <div class="side-panel">
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3>Top Ports by Volume</h3>
+                        </div>
+                        <div class="panel-content">
+                            <ul class="top-list" id="topPortsList">
+                                <!-- Populated by JS -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3>Crossing Methods</h3>
+                        </div>
+                        <div class="panel-content" id="measuresChart">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bottom-grid">
+                <div class="panel-card timeline-container">
+                    <div class="panel-header">
+                        <h3>📈 Crossings Over Time</h3>
+                        <div class="timeline-controls">
+                            <label>Year:</label>
+                            <select id="timelineYearSelect">
+                                <option value="all">All Years</option>
+                            </select>
+                            <label>Sort:</label>
+                            <select id="timelineSortSelect">
+                                <option value="date-asc">Date ↑</option>
+                                <option value="date-desc">Date ↓</option>
+                                <option value="total-desc">Volume ↓</option>
+                                <option value="total-asc">Volume ↑</option>
+                                <option value="canada-desc">Canada ↓</option>
+                                <option value="mexico-desc">Mexico ↓</option>
+                            </select>
+                            <div class="map-legend" style="margin-left: auto;">
+                                <div class="legend-item">
+                                    <div class="legend-dot canada"></div>
+                                    <span>Canada</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-dot mexico"></div>
+                                    <span>Mexico</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="timeline-chart-wrapper">
+                            <div class="timeline-chart" id="timelineChart">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                        <div class="selected-period" id="selectedPeriod">
+                            <h4 id="selectedPeriodTitle">Selected Period</h4>
+                            <div class="stats">
+                                <div class="timeline-summary-item">
+                                    <span class="dot canada"></span>
+                                    <span>Canada: <span class="value" id="selectedCanada">0</span></span>
+                                </div>
+                                <div class="timeline-summary-item">
+                                    <span class="dot mexico"></span>
+                                    <span>Mexico: <span class="value" id="selectedMexico">0</span></span>
+                                </div>
+                                <div class="timeline-summary-item">
+                                    <span>Total: <span class="value" id="selectedTotal">0</span></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="timeline-summary">
+                            <div class="timeline-summary-item">
+                                <span class="dot canada"></span>
+                                <span>Total Canada: <span class="value" id="timelineCanadaTotal">0</span></span>
+                            </div>
+                            <div class="timeline-summary-item">
+                                <span class="dot mexico"></span>
+                                <span>Total Mexico: <span class="value" id="timelineMexicoTotal">0</span></span>
+                            </div>
+                            <div class="timeline-summary-item">
+                                <span>Periods shown: <span class="value" id="timelinePeriodCount">0</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="side-stats">
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3>Border Comparison</h3>
+                        </div>
+                        <div class="panel-content">
+                            <div class="border-comparison">
+                                <div class="border-stat">
+                                    <h4 class="canada">🇨🇦 Canada</h4>
+                                    <div class="value" id="canadaTotal">0</div>
+                                    <div class="percent" id="canadaTotalPercent">0%</div>
+                                </div>
+                                <div class="border-stat">
+                                    <h4 class="mexico">🇲🇽 Mexico</h4>
+                                    <div class="value" id="mexicoTotal">0</div>
+                                    <div class="percent" id="mexicoTotalPercent">0%</div>
+                                </div>
+                            </div>
+                            <div class="comparison-bar">
+                                <div class="comparison-segment canada" id="canadaBar" style="width: 50%"></div>
+                                <div class="comparison-segment mexico" id="mexicoBar" style="width: 50%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card" style="margin-top: 1.5rem;">
+                        <div class="panel-header">
+                            <h3>Top States</h3>
+                        </div>
+                        <div class="panel-content">
+                            <div class="states-grid" id="statesGrid">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <style>
+        .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+            background: rgba(0, 212, 170, 0.3);
+        }
+        .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+            background: var(--accent-mexico);
+            color: var(--bg-deep);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+        }
+        .canada-cluster {
+            background: rgba(255, 77, 109, 0.3) !important;
+        }
+        .canada-cluster div {
+            background: var(--accent-canada) !important;
+        }
+    </style>
+    <script>
+        // Global state
+        let rawData = [];
+        let processedData = [];
+        let map = null;
+        let markersLayer = null;
+
+        // DOM Elements
+        const fileInput = document.getElementById('fileInput');
+        const fileDropZone = document.getElementById('fileDropZone');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingBar = document.getElementById('loadingBar');
+        const dashboardContent = document.getElementById('dashboardContent');
+        const recordCount = document.getElementById('recordCount');
+
+        // Filters
+        const yearFilter = document.getElementById('yearFilter');
+        const borderFilter = document.getElementById('borderFilter');
+        const measureFilter = document.getElementById('measureFilter');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupFileHandlers();
+            setupFilters();
+            setupTimelineControls();
+            // Auto-load data.json
+            loadDataJson();
+        });
+
+        async function loadDataJson() {
+            loadingText.textContent = 'Fetching data...';
+            loadingBar.style.width = '5%';
+
+            try {
+                // Try gzipped version first, fall back to regular json
+                let response = await fetch('data.json.gz');
+                let isGzipped = response.ok;
+                
+                if (!isGzipped) {
+                    response = await fetch('data.json');
+                }
+                
+                if (!response.ok) {
+                    throw new Error('Data file not found - use file upload instead');
+                }
+
+                const contentLength = response.headers.get('content-length');
+                const total = parseInt(contentLength, 10) || 0;
+                
+                loadingText.textContent = `Downloading ${isGzipped ? 'compressed ' : ''}data (${total ? formatBytes(total) : 'unknown size'})...`;
+                loadingBar.style.width = '10%';
+
+                // Stream the response for progress tracking
+                const reader = response.body.getReader();
+                const chunks = [];
+                let received = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    chunks.push(value);
+                    received += value.length;
+                    
+                    if (total) {
+                        const progress = 10 + (received / total) * 20;
+                        loadingBar.style.width = progress + '%';
+                        loadingText.textContent = `Downloading... ${formatBytes(received)} / ${formatBytes(total)}`;
+                    }
+                }
+
+                // Combine chunks
+                const allChunks = new Uint8Array(received);
+                let position = 0;
+                for (const chunk of chunks) {
+                    allChunks.set(chunk, position);
+                    position += chunk.length;
+                }
+
+                let text;
+                
+                if (isGzipped) {
+                    loadingText.textContent = 'Decompressing data...';
+                    loadingBar.style.width = '32%';
+                    
+                    // Decompress gzip using DecompressionStream
+                    const ds = new DecompressionStream('gzip');
+                    const decompressedStream = new Response(allChunks).body.pipeThrough(ds);
+                    text = await new Response(decompressedStream).text();
+                } else {
+                    text = new TextDecoder().decode(allChunks);
+                }
+                
+                loadingText.textContent = 'Parsing JSON (this may take a moment)...';
+                loadingBar.style.width = '35%';
+                
+                // Parse in next tick to allow UI update
+                await new Promise(r => setTimeout(r, 50));
+                
+                const json = JSON.parse(text);
+                rawData = json.data || [];
+                
+                loadingText.textContent = `Processing ${rawData.length.toLocaleString()} records...`;
+                loadingBar.style.width = '50%';
+
+                await processData();
+                
+                loadingText.textContent = 'Rendering dashboard...';
+                loadingBar.style.width = '90%';
+
+                await renderDashboard();
+                
+                loadingBar.style.width = '100%';
+                setTimeout(() => {
+                    loadingOverlay.classList.add('hidden');
+                    fileDropZone.style.display = 'none';
+                    dashboardContent.style.display = 'block';
+                    
+                    // Fix map size after container becomes visible
+                    setTimeout(() => {
+                        if (map) {
+                            map.invalidateSize();
+                            console.log('Map size invalidated after show');
+                        }
+                    }, 200);
+                }, 300);
+
+            } catch (error) {
+                console.error('Auto-load failed:', error);
+                // Show file upload as fallback
+                loadingOverlay.classList.add('hidden');
+                loadingBar.style.width = '0%';
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+            if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+            if (bytes >= 1e3) return (bytes / 1e3).toFixed(1) + ' KB';
+            return bytes + ' B';
+        }
+
+        function setupFileHandlers() {
+            fileDropZone.addEventListener('click', () => fileInput.click());
+            
+            fileDropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                fileDropZone.classList.add('dragover');
+            });
+            
+            fileDropZone.addEventListener('dragleave', () => {
+                fileDropZone.classList.remove('dragover');
+            });
+            
+            fileDropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                fileDropZone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) loadFile(file);
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) loadFile(file);
+            });
+        }
+
+        function setupFilters() {
+            yearFilter.addEventListener('change', applyFilters);
+            borderFilter.addEventListener('change', applyFilters);
+            measureFilter.addEventListener('change', applyFilters);
+        }
+
+        async function loadFile(file) {
+            loadingOverlay.classList.remove('hidden');
+            loadingText.textContent = 'Reading file...';
+            loadingBar.style.width = '10%';
+
+            try {
+                const text = await file.text();
+                loadingText.textContent = 'Parsing JSON...';
+                loadingBar.style.width = '30%';
+
+                const json = JSON.parse(text);
+                rawData = json.data || [];
+                
+                loadingText.textContent = 'Processing data...';
+                loadingBar.style.width = '50%';
+
+                await processData();
+                
+                loadingText.textContent = 'Rendering dashboard...';
+                loadingBar.style.width = '80%';
+
+                await renderDashboard();
+                
+                loadingBar.style.width = '100%';
+                setTimeout(() => {
+                    loadingOverlay.classList.add('hidden');
+                    fileDropZone.style.display = 'none';
+                    dashboardContent.style.display = 'block';
+                    
+                    // Fix map size after container becomes visible
+                    setTimeout(() => {
+                        if (map) {
+                            map.invalidateSize();
+                        }
+                    }, 200);
+                }, 300);
+
+            } catch (error) {
+                console.error('Error loading file:', error);
+                loadingText.textContent = 'Error: ' + error.message;
+                loadingBar.style.background = 'var(--accent-canada)';
+            }
+        }
+
+        async function processData() {
+            // Process in chunks to avoid blocking
+            const chunkSize = 10000;
+            processedData = [];
+
+            for (let i = 0; i < rawData.length; i += chunkSize) {
+                const chunk = rawData.slice(i, i + chunkSize);
+                
+                chunk.forEach(row => {
+                    processedData.push({
+                        portName: row[8] || '',
+                        state: row[9] || '',
+                        portCode: row[10] || '',
+                        border: row[11] || '',
+                        date: row[12] || '',
+                        measure: row[13] || '',
+                        value: parseInt(row[14]) || 0,
+                        lat: parseFloat(row[15]) || null,
+                        lng: parseFloat(row[16]) || null
+                    });
+                });
+
+                // Update progress
+                const progress = 50 + (i / rawData.length) * 30;
+                loadingBar.style.width = progress + '%';
+                
+                // Yield to UI
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            // Populate filter options
+            populateFilters();
+        }
+
+        function populateFilters() {
+            // Years
+            const years = new Set();
+            processedData.forEach(d => {
+                if (d.date) {
+                    const year = d.date.substring(0, 4);
+                    years.add(year);
+                }
+            });
+            
+            const sortedYears = Array.from(years).sort().reverse();
+            yearFilter.innerHTML = '<option value="">All Years</option>' + 
+                sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+
+            // Measures
+            const measures = new Set();
+            processedData.forEach(d => {
+                if (d.measure) measures.add(d.measure);
+            });
+            
+            measureFilter.innerHTML = '<option value="">All Measures</option>' + 
+                Array.from(measures).sort().map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+
+        function getFilteredData() {
+            let data = processedData;
+            
+            const year = yearFilter.value;
+            const border = borderFilter.value;
+            const measure = measureFilter.value;
+
+            if (year) {
+                data = data.filter(d => d.date && d.date.startsWith(year));
+            }
+            if (border) {
+                data = data.filter(d => d.border === border);
+            }
+            if (measure) {
+                data = data.filter(d => d.measure === measure);
+            }
+
+            return data;
+        }
+
+        function applyFilters() {
+            renderDashboard();
+        }
+
+        async function renderDashboard() {
+            const data = getFilteredData();
+            
+            // Update record count
+            recordCount.textContent = `${data.length.toLocaleString()} records loaded`;
+
+            // Calculate stats
+            const stats = calculateStats(data);
+            updateStats(stats);
+            updateTopPorts(stats);
+            updateMeasuresChart(stats);
+            updateBorderComparison(stats);
+            updateStatesGrid(stats);
+            updateTimelineChart(stats);
+            await updateMap(stats);
+        }
+
+        function calculateStats(data) {
+            const stats = {
+                total: 0,
+                canadaTotal: 0,
+                mexicoTotal: 0,
+                ports: new Map(),
+                measures: new Map(),
+                states: new Map(),
+                portCoords: new Map(),
+                yearlyData: new Map(),
+                monthlyData: new Map()
+            };
+
+            data.forEach(d => {
+                stats.total += d.value;
+                
+                if (d.border === 'US-Canada Border') {
+                    stats.canadaTotal += d.value;
+                } else if (d.border === 'US-Mexico Border') {
+                    stats.mexicoTotal += d.value;
+                }
+
+                // Ports
+                const portKey = d.portName;
+                if (portKey) {
+                    if (!stats.ports.has(portKey)) {
+                        stats.ports.set(portKey, { name: d.portName, state: d.state, border: d.border, total: 0 });
+                    }
+                    stats.ports.get(portKey).total += d.value;
+                    
+                    // Store coordinates
+                    if (d.lat && d.lng && !stats.portCoords.has(portKey)) {
+                        stats.portCoords.set(portKey, { lat: d.lat, lng: d.lng, border: d.border });
+                    }
+                }
+
+                // Measures
+                if (d.measure) {
+                    stats.measures.set(d.measure, (stats.measures.get(d.measure) || 0) + d.value);
+                }
+
+                // States
+                if (d.state) {
+                    stats.states.set(d.state, (stats.states.get(d.state) || 0) + d.value);
+                }
+
+                // Yearly and Monthly data
+                if (d.date) {
+                    const year = d.date.substring(0, 4);
+                    const month = d.date.substring(5, 7);
+                    const yearMonth = `${year}-${month}`;
+                    
+                    // Yearly
+                    if (!stats.yearlyData.has(year)) {
+                        stats.yearlyData.set(year, { canada: 0, mexico: 0, total: 0 });
+                    }
+                    const yearData = stats.yearlyData.get(year);
+                    yearData.total += d.value;
+                    
+                    // Monthly
+                    if (!stats.monthlyData.has(yearMonth)) {
+                        stats.monthlyData.set(yearMonth, { year, month, canada: 0, mexico: 0, total: 0 });
+                    }
+                    const monthData = stats.monthlyData.get(yearMonth);
+                    monthData.total += d.value;
+                    
+                    if (d.border === 'US-Canada Border') {
+                        yearData.canada += d.value;
+                        monthData.canada += d.value;
+                    } else if (d.border === 'US-Mexico Border') {
+                        yearData.mexico += d.value;
+                        monthData.mexico += d.value;
+                    }
+                }
+            });
+
+            return stats;
+        }
+
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+            return num.toLocaleString();
+        }
+
+        function updateStats(stats) {
+            document.getElementById('totalCrossings').textContent = formatNumber(stats.total);
+            document.getElementById('canadaCrossings').textContent = formatNumber(stats.canadaTotal);
+            document.getElementById('mexicoCrossings').textContent = formatNumber(stats.mexicoTotal);
+            document.getElementById('activePorts').textContent = stats.ports.size;
+
+            const canadaPercent = stats.total > 0 ? ((stats.canadaTotal / stats.total) * 100).toFixed(1) : 0;
+            const mexicoPercent = stats.total > 0 ? ((stats.mexicoTotal / stats.total) * 100).toFixed(1) : 0;
+            
+            document.getElementById('canadaPercent').textContent = `${canadaPercent}% of total`;
+            document.getElementById('mexicoPercent').textContent = `${mexicoPercent}% of total`;
+        }
+
+        function updateTopPorts(stats) {
+            const sortedPorts = Array.from(stats.ports.values())
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 8);
+
+            const list = document.getElementById('topPortsList');
+            list.innerHTML = sortedPorts.map((port, i) => `
+                <li class="top-list-item">
+                    <span class="rank">${i + 1}</span>
+                    <div class="item-info">
+                        <div class="item-name">${port.name}</div>
+                        <div class="item-meta">${port.state} • ${port.border.replace('US-', '').replace(' Border', '')}</div>
+                    </div>
+                    <span class="item-value">${formatNumber(port.total)}</span>
+                </li>
+            `).join('');
+        }
+
+        function updateMeasuresChart(stats) {
+            const sortedMeasures = Array.from(stats.measures.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 6);
+
+            const maxValue = sortedMeasures[0]?.[1] || 1;
+            
+            const measureClasses = {
+                'Personal Vehicles': 'vehicles',
+                'Personal Vehicle Passengers': 'passengers',
+                'Trucks': 'trucks',
+                'Pedestrians': 'pedestrians',
+                'Buses': 'buses',
+                'Bus Passengers': 'passengers',
+                'Trains': 'trains',
+                'Train Passengers': 'passengers',
+                'Truck Containers Loaded': 'trucks',
+                'Truck Containers Empty': 'trucks',
+                'Rail Containers Loaded': 'trains',
+                'Rail Containers Empty': 'trains'
+            };
+
+            const chart = document.getElementById('measuresChart');
+            chart.innerHTML = sortedMeasures.map(([measure, value]) => {
+                const percent = (value / maxValue) * 100;
+                const cls = measureClasses[measure] || 'vehicles';
+                return `
+                    <div class="measure-bar">
+                        <div class="measure-label">
+                            <span class="measure-name">${measure}</span>
+                            <span class="measure-value">${formatNumber(value)}</span>
+                        </div>
+                        <div class="measure-track">
+                            <div class="measure-fill ${cls}" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateBorderComparison(stats) {
+            const total = stats.canadaTotal + stats.mexicoTotal;
+            const canadaPercent = total > 0 ? (stats.canadaTotal / total) * 100 : 50;
+            const mexicoPercent = total > 0 ? (stats.mexicoTotal / total) * 100 : 50;
+
+            document.getElementById('canadaTotal').textContent = formatNumber(stats.canadaTotal);
+            document.getElementById('mexicoTotal').textContent = formatNumber(stats.mexicoTotal);
+            document.getElementById('canadaTotalPercent').textContent = `${canadaPercent.toFixed(1)}%`;
+            document.getElementById('mexicoTotalPercent').textContent = `${mexicoPercent.toFixed(1)}%`;
+            document.getElementById('canadaBar').style.width = `${canadaPercent}%`;
+            document.getElementById('mexicoBar').style.width = `${mexicoPercent}%`;
+        }
+
+        function updateStatesGrid(stats) {
+            const sortedStates = Array.from(stats.states.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const grid = document.getElementById('statesGrid');
+            grid.innerHTML = sortedStates.map(([state, value]) => `
+                <div class="state-item">
+                    <span class="state-name">${state}</span>
+                    <span class="state-value">${formatNumber(value)}</span>
+                </div>
+            `).join('');
+        }
+
+        // Store current stats globally for timeline updates
+        let currentStats = null;
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        function setupTimelineControls() {
+            document.getElementById('timelineYearSelect').addEventListener('change', () => {
+                if (currentStats) updateTimelineChart(currentStats);
+            });
+            document.getElementById('timelineSortSelect').addEventListener('change', () => {
+                if (currentStats) updateTimelineChart(currentStats);
+            });
+        }
+
+        function updateTimelineChart(stats) {
+            currentStats = stats;
+            const chart = document.getElementById('timelineChart');
+            const yearSelect = document.getElementById('timelineYearSelect');
+            const sortSelect = document.getElementById('timelineSortSelect');
+            
+            // Populate year dropdown
+            const years = Array.from(stats.yearlyData.keys()).sort();
+            const currentValue = yearSelect.value;
+            yearSelect.innerHTML = '<option value="all">All Years (by year)</option>' +
+                years.map(y => `<option value="${y}">${y} (by month)</option>`).join('');
+            // Restore selection if still valid
+            if (years.includes(currentValue) || currentValue === 'all') {
+                yearSelect.value = currentValue;
+            }
+            
+            const selectedYear = yearSelect.value;
+            const sortMode = sortSelect.value;
+            
+            let data = [];
+            let isMonthly = selectedYear !== 'all';
+            
+            if (isMonthly && stats.monthlyData) {
+                // Show months for selected year
+                data = Array.from(stats.monthlyData.entries())
+                    .filter(([key, _]) => key.startsWith(selectedYear))
+                    .map(([key, val]) => ({
+                        key,
+                        label: monthNames[parseInt(val.month) - 1],
+                        year: val.year,
+                        month: val.month,
+                        ...val
+                    }));
+            } else {
+                // Show all years
+                data = Array.from(stats.yearlyData.entries())
+                    .map(([year, val]) => ({
+                        key: year,
+                        label: year,
+                        year,
+                        ...val
+                    }));
+            }
+            
+            // Sort data
+            switch (sortMode) {
+                case 'date-asc':
+                    data.sort((a, b) => a.key.localeCompare(b.key));
+                    break;
+                case 'date-desc':
+                    data.sort((a, b) => b.key.localeCompare(a.key));
+                    break;
+                case 'total-desc':
+                    data.sort((a, b) => b.total - a.total);
+                    break;
+                case 'total-asc':
+                    data.sort((a, b) => a.total - b.total);
+                    break;
+                case 'canada-desc':
+                    data.sort((a, b) => b.canada - a.canada);
+                    break;
+                case 'mexico-desc':
+                    data.sort((a, b) => b.mexico - a.mexico);
+                    break;
+            }
+            
+            if (data.length === 0) {
+                chart.innerHTML = '<p style="color: var(--text-muted);">No data available for this period</p>';
+                return;
+            }
+
+            // Find max value for scaling
+            const maxValue = Math.max(...data.map(d => Math.max(d.canada, d.mexico)));
+            
+            // Track totals
+            let totalCanada = 0, totalMexico = 0;
+            
+            chart.innerHTML = data.map((item, idx) => {
+                const canadaHeight = maxValue > 0 ? (item.canada / maxValue) * 100 : 0;
+                const mexicoHeight = maxValue > 0 ? (item.mexico / maxValue) * 100 : 0;
+                totalCanada += item.canada;
+                totalMexico += item.mexico;
+                
+                // Detect year change for visual separator (only in monthly view sorted by date)
+                const prevItem = idx > 0 ? data[idx - 1] : null;
+                const isYearStart = isMonthly && prevItem && prevItem.year !== item.year && 
+                                   (sortMode === 'date-asc' || sortMode === 'date-desc');
+                
+                const displayLabel = isMonthly ? item.label : item.label.slice(-2);
+                
+                return `
+                    <div class="timeline-bar-group ${isYearStart ? 'year-start' : ''}" 
+                         data-key="${item.key}"
+                         data-canada="${item.canada}"
+                         data-mexico="${item.mexico}"
+                         data-total="${item.total}"
+                         title="${isMonthly ? monthNames[parseInt(item.month)-1] + ' ' + item.year : item.year}&#10;Canada: ${formatNumber(item.canada)}&#10;Mexico: ${formatNumber(item.mexico)}&#10;Total: ${formatNumber(item.total)}">
+                        <div class="timeline-bars">
+                            <div class="timeline-bar canada" style="height: ${canadaHeight}%"></div>
+                            <div class="timeline-bar mexico" style="height: ${mexicoHeight}%"></div>
+                        </div>
+                        <div class="timeline-label ${!isMonthly ? 'year-label' : ''}">${displayLabel}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Update summary
+            document.getElementById('timelineCanadaTotal').textContent = formatNumber(totalCanada);
+            document.getElementById('timelineMexicoTotal').textContent = formatNumber(totalMexico);
+            document.getElementById('timelinePeriodCount').textContent = data.length;
+            
+            // Add click handlers for detail view
+            chart.querySelectorAll('.timeline-bar-group').forEach(el => {
+                el.addEventListener('click', () => {
+                    const key = el.dataset.key;
+                    const canada = parseInt(el.dataset.canada);
+                    const mexico = parseInt(el.dataset.mexico);
+                    const total = parseInt(el.dataset.total);
+                    
+                    const periodEl = document.getElementById('selectedPeriod');
+                    const isMonth = key.includes('-');
+                    
+                    if (isMonth) {
+                        const [year, month] = key.split('-');
+                        document.getElementById('selectedPeriodTitle').textContent = 
+                            `${monthNames[parseInt(month)-1]} ${year}`;
+                    } else {
+                        document.getElementById('selectedPeriodTitle').textContent = `Year ${key}`;
+                    }
+                    
+                    document.getElementById('selectedCanada').textContent = formatNumber(canada);
+                    document.getElementById('selectedMexico').textContent = formatNumber(mexico);
+                    document.getElementById('selectedTotal').textContent = formatNumber(total);
+                    
+                    periodEl.classList.add('visible');
+                });
+            });
+        }
+
+        async function updateMap(stats) {
+            // Initialize map if needed
+            if (!map) {
+                try {
+                    map = L.map('map', {
+                        center: [42, -100],
+                        zoom: 3,
+                        minZoom: 2,
+                        maxZoom: 12,
+                        zoomControl: true,
+                        attributionControl: false
+                    });
+
+                    // Use CartoDB Dark Matter (no API key needed)
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        maxZoom: 19,
+                        subdomains: 'abcd'
+                    }).addTo(map);
+                    
+                    markersLayer = L.layerGroup().addTo(map);
+                    
+                    // Force a resize after a short delay
+                    setTimeout(() => {
+                        map.invalidateSize();
+                        console.log('Map resized');
+                    }, 100);
+                    
+                    console.log('Map initialized successfully');
+                } catch (e) {
+                    console.error('Map initialization error:', e);
+                }
+            }
+
+            // Clear existing markers
+            markersLayer.clearLayers();
+
+            // Add port markers
+            const portData = Array.from(stats.ports.entries()).map(([name, data]) => {
+                const coords = stats.portCoords.get(name);
+                if (coords) {
+                    return { ...data, ...coords };
+                }
+                return null;
+            }).filter(Boolean);
+
+            // Sort by total and show top 200 ports to avoid overloading
+            const topPorts = portData
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 200);
+
+            // Calculate max for scaling
+            const maxTotal = Math.max(...topPorts.map(p => p.total), 1);
+
+            console.log(`Rendering ${topPorts.length} ports on map`);
+
+            topPorts.forEach(port => {
+                if (!port.lat || !port.lng || isNaN(port.lat) || isNaN(port.lng)) return;
+                
+                const size = Math.max(8, Math.min(35, (port.total / maxTotal) * 35 + 8));
+                const color = port.border === 'US-Canada Border' ? '#ff4d6d' : '#00d4aa';
+                const borderClass = port.border === 'US-Canada Border' ? 'canada' : 'mexico';
+
+                const marker = L.circleMarker([port.lat, port.lng], {
+                    radius: size,
+                    fillColor: color,
+                    color: '#ffffff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.7
+                });
+
+                marker.bindPopup(`
+                    <div class="popup-title">${port.name}</div>
+                    <div class="popup-border ${borderClass}">${port.border}</div>
+                    <div class="popup-stat">
+                        <span>State</span>
+                        <span>${port.state}</span>
+                    </div>
+                    <div class="popup-stat">
+                        <span>Total Crossings</span>
+                        <span>${formatNumber(port.total)}</span>
+                    </div>
+                `);
+
+                markersLayer.addLayer(marker);
+            });
+
+            // Don't auto-fit - keep the default view showing full US
+            // User can zoom in manually to see details
+            
+            console.log('Map updated with', markersLayer.getLayers().length, 'markers');
+        }
+    </script>
+</body>
+</html>
+
